@@ -30,6 +30,18 @@ def generate_launch_description() -> LaunchDescription:
         description="camera ID or name"
     )
 
+    role_param_name = "role"
+    role_param_default = "raw"
+    role_param = LaunchConfiguration(
+        role_param_name,
+        default=role_param_default,
+    )
+    role_launch_arg = DeclareLaunchArgument(
+        role_param_name,
+        default_value=role_param_default,
+        description="stream role"
+    )
+
     format_param_name = "format"
     format_param_default = str()
     format_param = LaunchConfiguration(
@@ -42,6 +54,42 @@ def generate_launch_description() -> LaunchDescription:
         description="pixel format"
     )
 
+    frame_id_param_name = "frame_id"
+    frame_id_param_default = str("raspi_camera")
+    frame_id_param = LaunchConfiguration(
+        frame_id_param_name,
+        default=frame_id_param_default,
+    )
+    frame_id_launch_arg = DeclareLaunchArgument(
+        frame_id_param_name,
+        default_value=frame_id_param_default,
+        description="frame ID for camera image"
+    )
+
+    swap_channels_param_name = "swap_red_blue"
+    swap_channels_param_default = str(False)
+    swap_channels_param = LaunchConfiguration(
+        swap_channels_param_name,
+        default=swap_channels_param_default,
+    )
+    swap_channels_launch_arg = DeclareLaunchArgument(
+        swap_channels_param_name,
+        default_value=swap_channels_param_default,
+        description="swap red and blue channels"
+    )
+
+    software_rotation_param_name = "software_rotation"
+    software_rotation_param_default = str(0)
+    software_rotation_param = LaunchConfiguration(
+        software_rotation_param_name,
+        default=software_rotation_param_default,
+    )
+    software_rotation_launch_arg = DeclareLaunchArgument(
+        software_rotation_param_name,
+        default_value=software_rotation_param_default,
+        description="software rotation angle"
+    )
+
     # camera node
     composable_nodes = [
         ComposableNode(
@@ -49,24 +97,34 @@ def generate_launch_description() -> LaunchDescription:
             plugin='camera::CameraNode',
             parameters=[{
                 "camera": camera_param,
-                "width": 640,
-                "height": 480,
+                "role": role_param,
+                "width": 1280,
+                "height": 1080,
                 "format": format_param,
+                "orientation": 0,
+                "frame_id": frame_id_param,
+                "swap_red_blue": swap_channels_param,
+                "software_rotation": software_rotation_param,
             }],
             extra_arguments=[{'use_intra_process_comms': True}],
+            remappings=[
+                ('/camera/image_raw', '/raspi_gscam/image_raw'),
+                ('/camera/image_raw/compressed', '/raspi_gscam/image_raw/compressed'),
+                ('/camera/camera_info', '/raspi_gscam/camera_info'),
+            ],
         ),
     ]
 
     # optionally add ImageViewNode to show camera image
-    if has_resource("packages", "image_view"):
-        composable_nodes += [
-            ComposableNode(
-                package='image_view',
-                plugin='image_view::ImageViewNode',
-                remappings=[('/image', '/camera/image_raw')],
-                extra_arguments=[{'use_intra_process_comms': True}],
-            ),
-        ]
+    # if has_resource("packages", "image_view"):
+    #     composable_nodes += [
+    #         ComposableNode(
+    #             package='image_view',
+    #             plugin='image_view::ImageViewNode',
+    #             remappings=[('/image', '/camera/image_raw')],
+    #             extra_arguments=[{'use_intra_process_comms': True}],
+    #         ),
+    #     ]
 
     # composable nodes in single container
     container = ComposableNodeContainer(
@@ -80,5 +138,9 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         container,
         camera_launch_arg,
+        role_launch_arg,
         format_launch_arg,
+        frame_id_launch_arg,
+        swap_channels_launch_arg,
+        software_rotation_launch_arg,
     ])

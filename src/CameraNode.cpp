@@ -97,6 +97,8 @@ private:
   std::unordered_map<const libcamera::FrameBuffer *, buffer_info_t> buffer_info;
 
   bool use_node_time;
+  bool swap_red_blue;
+  int software_rotation_deg=0;
 
   static const rclcpp::PublisherOptionsWithAllocator<std::allocator<void>> pubopts;
 
@@ -230,6 +232,77 @@ compressImageMsg(const sensor_msgs::msg::Image &source,
   cv::imencode(".jpg", image, destination.data, params);
 }
 
+static void
+swap_encoding_channels(std::string &encoding_header)
+{
+  using namespace sensor_msgs::image_encodings;
+
+  if (encoding_header != RGB8 && encoding_header != BGR8 &&
+      encoding_header != RGBA8 && encoding_header != BGRA8) {
+        
+    std::cerr << "Encoding is not RGB/BGR/RGBA/BGRA, ignoring" << std::endl;
+  }
+
+  if (encoding_header == RGB8){
+    encoding_header = BGR8;
+  }
+  else if (encoding_header == RGBA8){
+    encoding_header = BGRA8;
+  }
+  else if (encoding_header == BGR8){
+    encoding_header = RGB8;
+  }
+  else if (encoding_header == BGRA8){
+    encoding_header = RGBA8;
+  }
+  else
+    throw std::runtime_error("Unexpected encoding: " + encoding_header);
+  
+  return;
+}
+
+static void rotate_img_sw(sensor_msgs::msg::Image &msg_img, int angle)
+{
+  using namespace sensor_msgs::image_encodings;
+  if (angle == 0) {
+    return;
+  }
+
+  const int channels = (msg_img.encoding == RGB8 || msg_img.encoding == BGR8) ? 3 : 4;
+  const int type = (channels == 3) ? CV_8UC3 : CV_8UC4;
+
+  cv::Mat src(
+    static_cast<int>(msg_img.height),
+    static_cast<int>(msg_img.width),
+    type,
+    msg_img.data.data(),
+    msg_img.step);
+
+  // cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg_img, msg_img.encoding);
+  cv::Mat rotated_img;
+
+  switch (angle) {
+    case 90:
+      cv::rotate(src, rotated_img, cv::ROTATE_90_CLOCKWISE);
+      break;
+    case 180:
+      cv::rotate(src, rotated_img, cv::ROTATE_180);
+      std::cout << "Rotated 180 degrees" << std::endl;
+      break;
+    case 270:
+      cv::rotate(src, rotated_img, cv::ROTATE_90_COUNTERCLOCKWISE);
+      break;
+  }
+
+  const size_t new_size = rotated_img.total() * rotated_img.elemSize();
+  msg_img.data.resize(new_size);
+  std::memcpy(msg_img.data.data(), rotated_img.data, new_size);
+
+  msg_img.width = static_cast<std::uint32_t>(rotated_img.cols);
+  msg_img.height = static_cast<std::uint32_t>(rotated_img.rows);
+  msg_img.step = static_cast<std::uint32_t>(msg_img.width * channels);
+  // when rotated 90/270, width/height were swapped by cv_ptr->toImageMsg()
+}
 
 CameraNode::CameraNode(const rclcpp::NodeOptions &options)
     : Node("camera", options),
@@ -296,6 +369,8 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
   param_descr_orientation.read_only = true;
   constexpr int orientation_angle_default = 0;
   const int angle = declare_parameter<int>("orientation", orientation_angle_default, param_descr_orientation);
+  // software rotation
+  software_rotation_deg = declare_parameter<int>("software_rotation", 0);
 #if LIBCAMERA_VER_GE(0, 2, 0)
   const libcamera::Orientation orientation = libcamera::orientationFromRotation(angle);
 #else
@@ -335,6 +410,11 @@ CameraNode::CameraNode(const rclcpp::NodeOptions &options)
   param_descr_use_node_time.description = "use node time instead of sensor timestamp for image messages";
   param_descr_use_node_time.read_only = true;
   use_node_time = declare_parameter<bool>("use_node_time", false, param_descr_use_node_time);
+
+  rcl_interfaces::msg::ParameterDescriptor param_descr_swap_red_blue;
+  param_descr_swap_red_blue.description = "swap red and blue color channels before publishing";
+  param_descr_swap_red_blue.read_only = true;
+  swap_red_blue = declare_parameter<bool>("swap_red_blue", false, param_descr_swap_red_blue);
 
   // publisher for raw and compressed image
   pub_image = this->create_publisher<sensor_msgs::msg::Image>("~/image_raw", 1, pubopts);
@@ -717,11 +797,20 @@ CameraNode::process(libcamera::Request *const request)
         msg_img->width = cfg.size.width;
         msg_img->height = cfg.size.height;
         msg_img->step = cfg.stride;
-        msg_img->encoding = get_ros_encoding(cfg.pixelFormat);
+        std::string encoding = get_ros_encoding(cfg.pixelFormat);
+        if (swap_red_blue) {
+          swap_encoding_channels(encoding);
+          RCLCPP_INFO_STREAM_ONCE(get_logger(), "Publishing image with final encoding: " << encoding);
+        }
+        msg_img->encoding = encoding;
         msg_img->is_bigendian = (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__);
         msg_img->data.resize(buffer_info[buffer].size);
         memcpy(msg_img->data.data(), buffer_info[buffer].data, buffer_info[buffer].size);
-
+        
+        if (software_rotation_deg != 0) {
+          rotate_img_sw(*msg_img, software_rotation_deg);
+        }
+        
         // compress to jpeg
         if (pub_image_compressed->get_subscription_count()) {
           try {
