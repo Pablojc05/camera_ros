@@ -2,7 +2,7 @@ from ament_index_python.resources import has_resource
 
 from launch.actions import DeclareLaunchArgument
 from launch.launch_description import LaunchDescription
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
@@ -91,6 +91,8 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # camera node
+    FPS = 30
+    fdl = int(1e6 / FPS)
     composable_nodes = [
         ComposableNode(
             package='camera_ros',
@@ -105,6 +107,7 @@ def generate_launch_description() -> LaunchDescription:
                 "frame_id": frame_id_param,
                 "swap_red_blue": swap_channels_param,
                 "software_rotation": software_rotation_param,
+                "FrameDurationLimits": [fdl,fdl],
             }],
             extra_arguments=[{'use_intra_process_comms': True}],
             remappings=[
@@ -133,6 +136,7 @@ def generate_launch_description() -> LaunchDescription:
         package='rclcpp_components',
         executable='component_container',
         composable_node_descriptions=composable_nodes,
+        arguments=['--ros-args', '--log-level', 'camera:=info'],
     )
 
     return LaunchDescription([
