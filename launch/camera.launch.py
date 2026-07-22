@@ -54,6 +54,18 @@ def generate_launch_description() -> LaunchDescription:
         description="pixel format"
     )
 
+    cam_info_url_param_name = "cam_info_url"
+    cam_info_url_param_default = str()
+    cam_info_url_param = LaunchConfiguration(
+        cam_info_url_param_name,
+        default=cam_info_url_param_default,
+    )
+    cam_info_url_launch_arg = DeclareLaunchArgument(
+        cam_info_url_param_name,
+        default_value=cam_info_url_param_default,
+        description="Camera info URL"
+    )
+
     frame_id_param_name = "frame_id"
     frame_id_param_default = str("raspi_camera")
     frame_id_param = LaunchConfiguration(
@@ -104,6 +116,7 @@ def generate_launch_description() -> LaunchDescription:
                 "height": 1080,
                 "format": format_param,
                 "orientation": 0,
+                "camera_info_url": cam_info_url_param,
                 "frame_id": frame_id_param,
                 "swap_red_blue": swap_channels_param,
                 "software_rotation": software_rotation_param,
